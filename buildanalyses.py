@@ -13,7 +13,7 @@ games_dir = "./data/games"
 info_regex =  re.compile(r"^info depth ([0-9]+) seldepth [0-9]+ multipv [0-9]+ score (cp|mate) (-?[0-9]+) nodes [0-9]+ nps [0-9]+ tbhits [0-9]+ time [0-9]+ pv(( \w+)+)$")
 
 
-def parse_and_coalesce_uci_output(uci_output):
+def parse_and_coalesce_uci_output(uci_output, max_depth):
     potential_moves = {
     }
     for log_line in uci_output:
@@ -25,16 +25,22 @@ def parse_and_coalesce_uci_output(uci_output):
         score = int(match.group(3))
         pv = match.group(4).strip().split(' ')
         move = pv[0]
+
+        if move not in potential_moves:
+            score_at_depth = [None] * (max_depth)
+        else:
+            score_at_depth = potential_moves[move]["score_at_depth"]
+        score_at_depth[depth - 1] = (score_type, score)
+
         potential_moves[move] = {
             "depth": depth,
-            "score_type": score_type,
-            "score": score,
+            "score_at_depth": score_at_depth,
             "pv": pv,
         }
     return potential_moves
 
 
-def get_stockfish_analysis(game, depth=5):
+def get_stockfish_analysis(game, depth=10):
     id = game['id']
     line = ""
     moves = game["moves"].split(' ')
@@ -75,8 +81,9 @@ def get_stockfish_analysis(game, depth=5):
             lines.append(line)
 
         print(f"{move} ", end=" ", flush=True)
+        #print(lines)
         move_analysis['bestmove'] = line
-        move_analysis['potential_moves'] = parse_and_coalesce_uci_output(lines)
+        move_analysis['potential_moves'] = parse_and_coalesce_uci_output(lines, depth)
         game_analysis['move_analyses'].append(move_analysis)
 
     return (game, game_analysis)
@@ -105,9 +112,7 @@ def build_analyses(player_name):
         analysis = get_stockfish_analysis(game)
         now = time.time()
   
-        total_log_lines = sum(map(lambda an: len(an['uci_output']), analysis[1]['move_analyses']))
-        print(f"\nAnalyzed game {id}. Took {now - then} seconds. {total_log_lines} lines returned.")
-        print("=====")
+        print(f"\nAnalyzed game {id}. Took {now - then} seconds.")
 
         with open(f"./data/analyses/{player_name}/{id}.pickle", 'wb') as f:
             pickle.dump(analysis, f)
