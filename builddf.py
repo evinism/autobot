@@ -53,6 +53,8 @@ def project_move_to_row(position, move, next_board_fen):
     data['san'] = board.san(board.parse_uci(move))
 
     for i, move in enumerate(move_analysis["pv"][0:NEAR_FUTURE]):
+        board.push_uci(move)
+
         if i == 0:
             data["label"] = int(board.fen() == next_board_fen)
 
@@ -74,6 +76,8 @@ def project_position_to_partial_df(position, next_board_fen):
         row = project_move_to_row(position, move, next_board_fen)
         rows.append(row)
     df = pd.DataFrame(rows)
+    # calculate cp_loss over the whole move
+    df['cp_loss'] = df['overall_score'].max() - df['overall_score']
     return df
 
 
