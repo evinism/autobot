@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import pickle
 import os
 from fetchgames import fetch_all_games
@@ -6,6 +9,7 @@ import chess
 import time
 import re
 
+from multiprocessing import Pool
 
 games_dir = "./data/games"
 
@@ -33,91 +37,105 @@ def parse_and_coalesce_uci_output(uci_output, max_depth):
         score_at_depth[depth - 1] = (score_type, score)
 
         potential_moves[move] = {
-            "depth": depth,
             "score_at_depth": score_at_depth,
             "pv": pv,
+            "depth": depth,
+            "overall_score": score_at_depth[-1]
         }
     return potential_moves
 
 
-def get_stockfish_analysis(game, depth=10):
-    id = game['id']
-    line = ""
+def analyze_position(board, proc, depth):
+    position_analysis = {
+        'fen': board.fen(),
+        'potential_moves': None
+    }
+    fen = board.fen()
+    proc.stdin.write(f"position fen {fen}\n".encode())
+    proc.stdin.write(f"go depth {depth}\n".encode())
+    proc.stdin.flush()
+
+    lines = []
+    line = proc.stdout.readline().decode()
+    lines.append(line)
+
+    while not line.startswith("bestmove"):
+        line = proc.stdout.readline().decode()
+        lines.append(line)
+
+    #print(f"{move} ", end=" ", flush=True)
+    position_analysis['potential_moves'] = parse_and_coalesce_uci_output(lines, depth)
+    return position_analysis
+
+def get_stockfish_analysis(game, depth):
     moves = game["moves"].split(' ')
     board = chess.Board()
 
     proc = subprocess.Popen(['stockfish'], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-    # Set up the game!!
     proc.stdin.write('position startpos\n'.encode())
     proc.stdin.write("setoption name MultiPV value 100\n".encode())
     proc.stdin.write("setoption name UCI_AnalyseMode value true\n".encode())
     proc.stdin.flush()
 
     game_analysis = {
+        "game": game,
         "depth": depth,
-        "move_analyses": []
+        "position_analyses": []
     }
 
+    def analyze():
+        game_analysis['position_analyses'].append(analyze_position(board, proc, depth))
+
+    analyze()
     for move in moves:
-        move_analysis = {
-            'move': move,
-            'bestmove': None,
-            'uci_output': [],
-            'potential_moves': None
-        }
         board.push_san(move)
+        analyze()
 
-        fen = board.fen()
-        proc.stdin.write(f"position fen {fen}\n".encode())
-        proc.stdin.write(f"go depth {depth}\n".encode())
-        proc.stdin.flush()
+    proc.terminate()
+    return game_analysis
 
-        lines = []
-        line = proc.stdout.readline().decode()
-        lines.append(line)
 
-        while not line.startswith("bestmove"):
-            line = proc.stdout.readline().decode()
-            lines.append(line)
+def analyze_game(game, depth, player_name, index: int, total: int):
+    if game['variant'] != "standard" or game['speed'] not in {'blitz', 'rapid'}:
+        return
+    id = game['id']
+    print(f"Analyzing game {id} ({index} of {total})\n")
+    if os.path.exists(f"./data/analyses/{player_name}/depth-{depth}/{id}.pickle"):
+        print(f"Already analyzed game {id}")
+        return
+    analysis = None
+    try:
+        then = time.time()
+        analysis = get_stockfish_analysis(game, depth)
+        now = time.time()
 
-        print(f"{move} ", end=" ", flush=True)
-        #print(lines)
-        move_analysis['bestmove'] = line
-        move_analysis['potential_moves'] = parse_and_coalesce_uci_output(lines, depth)
-        game_analysis['move_analyses'].append(move_analysis)
+        print(f"\nAnalyzed game {id}. Took {now - then} seconds at depth {depth}.")
+    except Exception as e:
+        print(f"\nFailed to analyze game {id}.")
+        print(e)
+    if analysis:
+        with open(f"./data/analyses/{player_name}/depth-{depth}/{id}.pickle", 'wb') as f:
+            pickle.dump(analysis, f)
 
-    return (game, game_analysis)
 
-def build_analyses(player_name):
+def build_analyses(player_name: str, depth: int = 12):
     if not os.path.exists(f"./data/games/{player_name}.pickle"):
         fetch_all_games(player_name)
     else:
         print("Already fetched all games for {}".format(player_name))
-    games = pickle.load(open(f"./data/games/{player_name}.pickle", 'rb'))
 
-    if not os.path.exists(f"./data/analyses/{player_name}"):
-        os.makedirs(f"./data/analyses/{player_name}")
+    with open(f"./data/games/{player_name}.pickle", 'rb') as games_file:
+        games = pickle.load(games_file)
 
-    i = 0
-    for game in games:
-        id = game["id"]
-        if game['variant'] != "standard" or game['speed'] not in {'blitz', 'rapid'}:
-            continue
+    if not os.path.exists(f"./data/analyses/{player_name}/depth-{depth}"):
+        os.makedirs(f"./data/analyses/{player_name}/depth-{depth}")
 
-        # Analysis
-        print("=====")
-        print(f"Analyzing game {id} ({i + 1} of {len(games)})\n")
-
-        then = time.time()
-        analysis = get_stockfish_analysis(game)
-        now = time.time()
-  
-        print(f"\nAnalyzed game {id}. Took {now - then} seconds.")
-
-        with open(f"./data/analyses/{player_name}/{id}.pickle", 'wb') as f:
-            pickle.dump(analysis, f)
-        i += 1
+    arglist = [(game, depth, player_name, i, len(games)) for i, game in enumerate(games)]
+    with Pool(processes=int(os.environ.get('PARALLELIZATION', '12'))) as pool:
+        pool.starmap(analyze_game, arglist)
+    print("Done building analyses!")
 
 if __name__ == "__main__":
     player_name = input("Enter player name: ")
-    build_analyses(player_name)
+    depth = int(input("Enter depth: "))
+    build_analyses(player_name, depth)
