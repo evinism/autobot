@@ -8,6 +8,7 @@ import subprocess
 import chess
 import time
 import re
+import random
 
 from multiprocessing import Pool
 
@@ -45,12 +46,11 @@ def parse_and_coalesce_uci_output(uci_output, max_depth):
     return potential_moves
 
 
-def analyze_position(board, proc, depth):
+def analyze_position(fen, proc, depth):
     position_analysis = {
-        'fen': board.fen(),
+        'fen': fen,
         'potential_moves': None
     }
-    fen = board.fen()
     proc.stdin.write(f"position fen {fen}\n".encode())
     proc.stdin.write(f"go depth {depth}\n".encode())
     proc.stdin.flush()
@@ -84,7 +84,7 @@ def get_stockfish_analysis(game, depth):
     }
 
     def analyze():
-        game_analysis['position_analyses'].append(analyze_position(board, proc, depth))
+        game_analysis['position_analyses'].append(analyze_position(board.fen, proc, depth))
 
     analyze()
     for move in moves:
@@ -118,7 +118,7 @@ def analyze_game(game, depth, player_name, index: int, total: int):
             pickle.dump(analysis, f)
 
 
-def build_analyses(player_name: str, depth: int = 12):
+def build_analyses(player_name: str, depth: int = 12, num_games: int = None):
     if not os.path.exists(f"./data/games/{player_name}.pickle"):
         fetch_all_games(player_name)
     else:
@@ -131,6 +131,9 @@ def build_analyses(player_name: str, depth: int = 12):
         os.makedirs(f"./data/analyses/{player_name}/depth-{depth}")
 
     arglist = [(game, depth, player_name, i, len(games)) for i, game in enumerate(games)]
+    if num_games > 0:
+        arglist = random.sample(arglist, num_games)
+
     with Pool(processes=int(os.environ.get('PARALLELIZATION', '12'))) as pool:
         pool.starmap(analyze_game, arglist)
     print("Done building analyses!")
@@ -138,4 +141,5 @@ def build_analyses(player_name: str, depth: int = 12):
 if __name__ == "__main__":
     player_name = input("Enter player name: ")
     depth = int(input("Enter depth: "))
+    number_of_games = int(input("Enter number of games to analyze, 0 for all: "))
     build_analyses(player_name, depth)

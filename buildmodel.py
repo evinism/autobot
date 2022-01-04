@@ -21,14 +21,9 @@ from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
 from sklearn.preprocessing import OrdinalEncoder
+from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import ColumnTransformer
 # -- EVERY CLASSIFIER --
-
-def encode_df(df):
-    passthroughs = df.select_dtypes(include=['float64', 'int64']).apply(lambda x: x.fillna(x.mean()))
-    passthroughs['san'] = df['san'].fillna('P')
-    return passthroughs
-
 
 
 def build_model(player, depth, comparison_player=None):
@@ -38,15 +33,9 @@ def build_model(player, depth, comparison_player=None):
     if comparison_player:
         with open(f"data/dfs/{comparison_player}/depth-{depth}.pickle", "rb") as f:
             cdf = pickle.load(f)
-            cdf = encode_df(cdf)
-
     else:
         cdf = None
 
-    # For testing
-    #df = df[['label', 'cp_loss']]
-
-    df = encode_df(df)
     X = df.drop(columns=['label'])
     y = df['label']
 
@@ -55,15 +44,19 @@ def build_model(player, depth, comparison_player=None):
     pipeline = Pipeline([
         ("transform", ColumnTransformer(
             transformers=[
-                ("san", OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1), ["san"]),
+                ("san", "drop", ["san"]),
+                ("current_move_traits",
+                    OneHotEncoder(handle_unknown="ignore"),
+                    ["piece", "to_square", "from_square", "piece_at_target"]
+                ),
             ],
             remainder="passthrough"
         )),
         ("imputer", SimpleImputer(strategy="median", add_indicator=1)),
-        ("scaler", StandardScaler()),
+        ("scaler", StandardScaler(with_mean=False)),
         #("classifier", LogisticRegression()),
         #("classifier", DecisionTreeClassifier())
-        ("classifier", RandomForestClassifier(n_estimators=100, max_depth=20, verbose=True, n_jobs=12))
+        ("classifier", RandomForestClassifier(n_estimators=100, max_depth=14, verbose=True, n_jobs=12))
         #("classifier", SVC(gamma="auto", probability=True))
         #("classifier", GaussianProcessClassifier())
     ])

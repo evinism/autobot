@@ -3,6 +3,7 @@ import numpy as np
 import os
 import pickle
 import chess
+import random
 
 # If you have a mate in 10, how many points is that in comparison?
 MATE_OFFSET = 2000 # centipawns
@@ -51,6 +52,12 @@ def project_move_to_row(position, move, next_board_fen):
         data[f"depth_{i}"] = score
     data["overall_score"] = list(filter(lambda x: x is not None, depths))[-1]
     data['san'] = board.san(board.parse_uci(move))
+    
+    # Data about the current move.
+    data['piece'] = board.piece_at(board.parse_uci(move).from_square).symbol()
+    data['from_square'] = chess.square_name(board.parse_uci(move).from_square)
+    data['to_square'] = chess.square_name(board.parse_uci(move).from_square)
+    data['piece_at_target'] = board.piece_at(board.parse_uci(move).to_square).symbol() if board.piece_at(board.parse_uci(move).to_square) else None
 
     for i, move in enumerate(move_analysis["pv"][0:NEAR_FUTURE]):
         board.push_uci(move)
@@ -101,17 +108,19 @@ def project_analysis_to_partial_df(analysis, player_name):
 
 
 def project_path_to_partial_df(path, player_name):
-    print(f"Starting {path}")
     with open(path, 'rb') as f:
         game_analysis = pickle.load(f)
         return project_analysis_to_partial_df(game_analysis, player_name)
 
-def load_analyses(player_name, depth):
+def load_analyses(player_name, depth, number_of_games):
     items = [f"./data/analyses/{player_name}/depth-{depth}/{path}" for path in os.listdir(f'./data/analyses/{player_name}/depth-{depth}')]
     print(f"Loading {len(items)} analyses...")
     print(f"Sample path: {items[0]}")
     df = None
-    for path in items:
+    if number_of_games > 0:
+        sampled = random.sample(items, number_of_games)
+    for i, path in enumerate(sampled):
+        print(f"Projecting game {i+1} of {len(sampled)}...")
         partial_df = project_path_to_partial_df(path, player_name)
         if df is None:
             df = partial_df
@@ -119,8 +128,8 @@ def load_analyses(player_name, depth):
             df = df.append(partial_df)
     return df
 
-def build_df(player_name, depth):
-    analyses = load_analyses(player_name, depth)
+def build_df(player_name, depth, number_of_games):
+    analyses = load_analyses(player_name, depth, number_of_games)
     if not os.path.exists(f"./data/dfs/{player_name}"):
         os.makedirs(f"./data/dfs/{player_name}")
     with open(f"./data/dfs/{player_name}/depth-{depth}.pickle", 'wb') as f:
@@ -131,4 +140,5 @@ def build_df(player_name, depth):
 if __name__ == "__main__":
     player_name = input("Enter player name: ")
     depth = int(input("Enter depth: "))
-    build_df(player_name, depth)
+    number_of_games = int(input("Enter number of games to build df for, 0 for all: "))
+    build_df(player_name, depth, number_of_games)
