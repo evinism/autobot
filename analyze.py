@@ -51,6 +51,7 @@ def analyze_position(fen, proc, depth):
         'fen': fen,
         'potential_moves': None
     }
+
     proc.stdin.write(f"position fen {fen}\n".encode())
     proc.stdin.write(f"go depth {depth}\n".encode())
     proc.stdin.flush()
@@ -84,7 +85,7 @@ def get_stockfish_analysis(game, depth):
     }
 
     def analyze():
-        game_analysis['position_analyses'].append(analyze_position(board.fen, proc, depth))
+        game_analysis['position_analyses'].append(analyze_position(board.fen(), proc, depth))
 
     analyze()
     for move in moves:
@@ -131,7 +132,7 @@ def build_analyses(player_name: str, depth: int = 12, num_games: int = None):
         os.makedirs(f"./data/analyses/{player_name}/depth-{depth}")
 
     arglist = [(game, depth, player_name, i, len(games)) for i, game in enumerate(games)]
-    if num_games > 0:
+    if num_games is not None and num_games > 0:
         arglist = random.sample(arglist, num_games)
 
     with Pool(processes=int(os.environ.get('PARALLELIZATION', '12'))) as pool:
@@ -142,4 +143,4 @@ if __name__ == "__main__":
     player_name = input("Enter player name: ")
     depth = int(input("Enter depth: "))
     number_of_games = int(input("Enter number of games to analyze, 0 for all: "))
-    build_analyses(player_name, depth)
+    build_analyses(player_name, depth, number_of_games)
