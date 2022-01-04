@@ -31,12 +31,17 @@ def encode_df(df):
 
 
 
-def build_model(player, depth, comparison_player):
+def build_model(player, depth, comparison_player=None):
     with open(f"data/dfs/{player}/depth-{depth}.pickle", "rb") as f:
         df = pickle.load(f)
 
-    with open(f"data/dfs/{comparison_player}/depth-{depth}.pickle", "rb") as f:
-        cdf = pickle.load(f)
+    if comparison_player:
+        with open(f"data/dfs/{comparison_player}/depth-{depth}.pickle", "rb") as f:
+            cdf = pickle.load(f)
+            cdf = encode_df(cdf)
+
+    else:
+        cdf = None
 
     # For testing
     #df = df[['label', 'cp_loss']]
@@ -58,7 +63,7 @@ def build_model(player, depth, comparison_player):
         ("scaler", StandardScaler()),
         #("classifier", LogisticRegression()),
         #("classifier", DecisionTreeClassifier())
-        ("classifier", RandomForestClassifier(n_estimators=100, max_depth=16, verbose=True, n_jobs=12))
+        ("classifier", RandomForestClassifier(n_estimators=100, max_depth=20, verbose=True, n_jobs=12))
         #("classifier", SVC(gamma="auto", probability=True))
         #("classifier", GaussianProcessClassifier())
     ])
@@ -78,12 +83,12 @@ def build_model(player, depth, comparison_player):
     print(f"Testing ROC AUC: {roc_auc_score(y_test, y_pred_test)}")
 
     # Estimate comparison player
-    cdf = encode_df(cdf)
-    cX = cdf.drop(columns=['label'])
-    cy = cdf['label']
-    cy_pred = pipeline.predict_proba(cX)
-    cy_pred = cy_pred[:, 1]
-    print(f"Same model applied to {comparison_player} ROC AUC: {roc_auc_score(cy, cy_pred)}")
+    if comparison_player:
+        cX = cdf.drop(columns=['label'])
+        cy = cdf['label']
+        cy_pred = pipeline.predict_proba(cX)
+        cy_pred = cy_pred[:, 1]
+        print(f"Same model applied to {comparison_player} ROC AUC: {roc_auc_score(cy, cy_pred)}")
 
     # Save model
     if not os.path.exists(f"data/models/{player}"):
@@ -99,4 +104,4 @@ if __name__ == "__main__":
     player = input("Enter player name: ")
     depth = input("Enter depth: ")
     comparison_player = input("Enter comparison player name: ")
-    model = build_model(player, depth, comparison_player)
+    model = build_model(player, depth, comparison_player.strip())
