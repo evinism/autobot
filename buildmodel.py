@@ -44,7 +44,7 @@ def build_model(player, depth, comparison_player=None):
     pipeline = Pipeline([
         ("transform", ColumnTransformer(
             transformers=[
-                ("san", "drop", ["san"]),
+                #("san", "drop", ["san"]),
                 ("current_move_traits",
                     OneHotEncoder(handle_unknown="ignore"),
                     ["piece", "to_square", "from_square", "piece_at_target"]

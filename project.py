@@ -4,6 +4,7 @@ import os
 import pickle
 import chess
 import random
+from numpy.polynomial.polynomial import Polynomial
 
 # If you have a mate in 10, how many points is that in comparison?
 MATE_OFFSET = 2000 # centipawns
@@ -40,6 +41,7 @@ def project_move_to_row(position, move, next_board_fen):
         chess.QUEEN,
     }
 
+    # Encoding score evolution over time
     depths = []
     for score_tup in move_analysis["score_at_depth"]:
         if score_tup is None:
@@ -47,11 +49,21 @@ def project_move_to_row(position, move, next_board_fen):
         else:
             score_type, score = score_tup
             depths.append(collapse_score(score_type, score) * cp_multiplier)
+    depth_data_points = [(i, score) for i, score in enumerate(depths) if score is not None]
+    depth_x = [x for x, y in depth_data_points]
+    depth_y = [y for x, y in depth_data_points]
 
-    for i, score in enumerate(depths):
-        data[f"depth_{i}"] = score
+    # Second-degree polynomial fit, with errror
+    pol, diag = Polynomial.fit(depth_x, depth_y, 2, full=True)
+    data['depth_score_resid'] = diag[0][0]
+    for i, coef in enumerate(pol.coef):
+        data[f"depth_score_coef_{i}"] = coef
     data["overall_score"] = list(filter(lambda x: x is not None, depths))[-1]
-    data['san'] = board.san(board.parse_uci(move))
+
+    #for i, score in enumerate(depths):
+    #    data[f"depth_{i}"] = score
+
+    #data['san'] = board.san(board.parse_uci(move))
     
     # Data about the current move.
     data['piece'] = board.piece_at(board.parse_uci(move).from_square).symbol()
@@ -119,6 +131,8 @@ def load_analyses(player_name, depth, number_of_games):
     df = None
     if number_of_games > 0:
         sampled = random.sample(items, number_of_games)
+    else:
+        sampled = items
     for i, path in enumerate(sampled):
         print(f"Projecting game {i+1} of {len(sampled)}...")
         partial_df = project_path_to_partial_df(path, player_name)
